@@ -14,5 +14,5 @@ namespace po = boost::program_options;
 
 using namespace std;
 #endif /* config_hpp */
-void setupMenuDescriptions(po::options_description &, string &, string &, string &, string &, string &);
+void setupMenuDescriptions(po::options_description &, string &, string &, string &, string &);
 void setupMenuDescriptionsC(po::options_description &, string &, string &, string &, string &, string &);

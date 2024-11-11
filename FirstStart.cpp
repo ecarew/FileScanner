@@ -12,7 +12,8 @@ void initdb(sqlite3 *db){
     id integer primary key autoincrement,
     parent integer,
     last_altered TEXT,
-    name TEXT);
+    name TEXT,
+    UNIQUE(name, parent));
     INSERT INTO directory VALUES(1,1,'','/Users/evancarew/Projects');
     CREATE TABLE files(
     name TEXT,
@@ -36,4 +37,19 @@ void initdb(sqlite3 *db){
         sqlite3_free(zErrMsg);
     }
 
+}
+
+bool test_db(sqlite3 *db){
+    // Iterate over the directories and store them in the db
+    std::string sql(R"END(
+    select count(*) from directory;
+    )END" );
+    char *zErrMsg = 0;
+    int rc = 0;
+    rc = sqlite3_exec(db, sql.c_str(), NULL, 0, &zErrMsg);
+    if(rc!=SQLITE_OK){
+        std::cout << "SQL Error: " << rc << " - " << zErrMsg << "\n";
+        sqlite3_free(zErrMsg);
+    }
+    return rc == SQLITE_ERROR ? false : true;
 }

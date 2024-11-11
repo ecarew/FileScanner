@@ -66,6 +66,7 @@ void store_directories(vector<fs::path>& paths, sqlite3 *db){
     }
 }
 
+bool test_db(sqlite3 *);
 void initdb(sqlite3 *);
 
 
@@ -102,7 +103,7 @@ void load_operations(vector<std::pair<std::string, int>> &operations, sqlite3 *d
 
 
 class Filetarget{
-    string cmd = "tar --remove-files -czf arch target";
+    string cmd = "tar -czf arch target/. && rm -rf target";
     string enc = "encrypt(openssl enc -aes-256-cbc -salt -in arch -out output -k passwd)";
     string sql = "insert into files values(name, 1)";
 public:
@@ -181,7 +182,7 @@ public:
 //the file name, if discovered, can be used to reconstruct the database records if
 //necessary. Format: <Date string with hyphens and plus signs>
 // <file name without extension><.gz>
-void slightly_stale(vector<std::pair<std::string, int>> &operations, FilesToArchive &stale, string &pw, sqlite3 *db){
+void slightly_stale(vector<std::pair<std::string, int>> &operations, FilesToArchive &stale, string &pw, sqlite3 *db, bool reportOnly=false){
     // first, get the directories and their last updated dates
     string sql(R"END(
             select id, last_altered, name, duration from directory join operations where op = 'remove' and id != 1;
@@ -203,8 +204,12 @@ void slightly_stale(vector<std::pair<std::string, int>> &operations, FilesToArch
         }
     }
     sqlite3_finalize(stmt);
-    stale.doReportAll();
-    stale.doArchiveAll(db);
+    if(!reportOnly){
+        stale.doArchiveAll(db);
+        stale.doReportAll();
+    } else {
+        stale.doReportAll();
+    }
 }
 //Only to be used with a human in the loop. If agreed, the directory is removed recursively.
 void over_ripe(vector<std::pair<std::string, int>> &operations, sqlite3 *db){
@@ -253,7 +258,7 @@ int main(int argc, const char * argv[]) {
         // Declare a group of options that will be
         // allowed only on command line
         po::options_description generic("Generic options");
-        setupMenuDescriptions(generic, config_file, persist_db, short_report, long_report, scanpath);
+        setupMenuDescriptions(generic, config_file, persist_db, long_report, scanpath);
         
         // Declare a group of options that will be
         // allowed both on command line and in
@@ -285,7 +290,7 @@ int main(int argc, const char * argv[]) {
             store(parse_config_file(ifs, config_file_options), vm);
             notify(vm);
         }
-        if (vm.count("help")) {
+        if (vm.count("help") || argc == 1) {
             cout << visible << "\n";
             return 0;
         }
@@ -301,18 +306,29 @@ int main(int argc, const char * argv[]) {
             cout << "Input persistent file is: "
             << vm["dbfile"].as< string >() << "\n";
         }
-       fs::path p(vm["scanpath"].as< string >());
+        fs::path p(vm["scanpath"].as< string >());
+        //First, put the paths in memory. No operations
         dir_enumerate(paths, p);
+        //Open the persistent memory database, create if not found
         sqlite3_open(persist_db.c_str(), &db);
         if(vm.count("initdb")){
             cout << "Initializing persistent DB file: " << vm["dbfile"].as< string >() << "\n";
             initdb(db);
-        }
+        } else if(!test_db(db))
+            initdb(db);
+        //Store the directory names in the database. Last write time is hashed into the name
         store_directories(paths, db);
+        //Get the configured operations from the database.
         load_operations(operations, db);
-        slightly_stale(operations, stale, passwd, db);
-        if(vm.count("remove")){
-            over_ripe(operations, db);
+        //Report on the directories only or do file management operations if asked.
+        if (vm.count("sreport") && (vm["sreport"].as< string >() == "y" || vm["sreport"].as< string >() == "Y"
+        || vm["sreport"].as< string >() == "t" || vm["sreport"].as< string >() == "T" ) && (!vm.count("archive") && !vm.count("remove"))){
+            slightly_stale(operations, stale, passwd, db, true);
+        } else {
+            slightly_stale(operations, stale, passwd, db);
+            if(vm.count("remove")){
+                over_ripe(operations, db);
+            }
         }
         sqlite3_close(db);
     }

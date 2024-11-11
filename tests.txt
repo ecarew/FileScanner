@@ -1,0 +1,12 @@
+1 run without any arguments: expect basic usage screen. result good
+2 run with -h|--help expect full usage screen. result good
+3 run with -v|--version expect version information (and set file options?). result good
+4 run with -s initial condition is the persistent database is empty, expect the database to be initialized. result: good
+5 run with -s initial condition is good database. expect database to be populated with hashed files. result populated database, no file menegement ops. good
+6 run with -s|--sreport to get a report of what the filesystem looks like, no actions to be performed. result Ok. The wording needs to be conditional. Currently, the report sais the files have been managed.
+7 run with -s a second time to see if the database created above gets poluted with duplicate entries. Result fail. There were duplicates. To fix this, I've implemented a unique
+    constraint on the name column and am reruning tests. Result good. As a final change, the schema should support a unique constraint on both the name and
+    parent columns together. Closing note, the schema was changed to support a constrains with both the name and parent.
+8 run with -a|--archive to perform the archive function in the target directory. Result dirs should be converted to tared and encrypted containers. the old dirs should be removed
+9 run with -r|remove to perform removal of a compressed directory's tar file without doing something strange like removing the wrong thing. Note that
+    this feature is the exact behavior ransomeware would perform, and as such may require code signing.
