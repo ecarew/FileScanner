@@ -60,7 +60,6 @@ void store_directories(vector<fs::path>& paths, sqlite3 *db){
         sql_sub_result = boost::regex_replace(sql_sub_result, last_updated, buf);
         rc = sqlite3_exec(db, sql_sub_result.c_str(), NULL, 0, &zErrMsg);
         if(rc!=SQLITE_OK){
-            cout << "SQL Error: " << zErrMsg << "\n";
             sqlite3_free(zErrMsg);
         }
     }
@@ -109,8 +108,9 @@ class Filetarget{
 public:
     int file_id;
     bool stat = true;
-    string datetime, name, pwd;
-    Filetarget(int id, string &dt, string &nm, string &pw){
+    fs::path name;
+    string datetime, pwd;
+    Filetarget(int id, string &dt, fs::path &nm, string &pw){
         file_id = id;
         datetime = dt;
         name = nm;
@@ -120,20 +120,23 @@ public:
         //"2023-11-27 21:13:27" Make field 21 chars long
         boost::regex datefix(" ");
         string datestr = boost::regex_replace(datetime, datefix, "_");
-        return datestr + name + ".tar";
+        fs::path arch_parent = name.parent_path();
+        string fname = name.filename().string();
+        arch_parent += datestr + fname + ".tar";
+        return arch_parent.string();
     }
     void doTar(){
-        if(std::filesystem::exists(name)){
+        if(exists(name)){
             boost::regex arch("arch"), target("target");
             string command = boost::regex_replace(cmd, arch, this->doExtendedFileName());
-            command = boost::regex_replace(cmd,target, name);
+            //command = boost::regex_replace(cmd,target, name);
             system(command.c_str());
             wait(0);
         } else
             stat = false;
     }
     void doEnc(sqlite3 *db){
-        if(std::filesystem::exists(name)){
+        if(exists(name)){
             char *zErrMsg = 0;
             int rc = 0;
             boost::regex arch("arch"), output("output"), passwd("passwd"), name("name");
@@ -185,9 +188,10 @@ public:
 void slightly_stale(vector<std::pair<std::string, int>> &operations, FilesToArchive &stale, string &pw, sqlite3 *db, bool reportOnly=false){
     // first, get the directories and their last updated dates
     string sql(R"END(
-            select id, last_altered, name, duration from directory join operations where op = 'remove' and id != 1;
+            select id, last_altered, name from directory order by id;
             )END");
     sqlite3_stmt *stmt;
+    fs::path scan_root;
     int arch_len = 0;
     string arch_op("archive");
     for(std::pair<std::string, int> op: operations)
@@ -196,10 +200,16 @@ void slightly_stale(vector<std::pair<std::string, int>> &operations, FilesToArch
     sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, NULL);
     while (sqlite3_step(stmt) != SQLITE_DONE) {
         int id = sqlite3_column_int(stmt, 0);
+        if(id == 1){
+            scan_root = (const char*)sqlite3_column_text(stmt, 2);
+            continue;
+        }
         string last_altered = (const char*)sqlite3_column_text(stmt, 1);
         string name = (const char*)sqlite3_column_text(stmt, 2);
         if(file_age(id, db) > arch_len){
-            Filetarget ft(id, last_altered, name, pw);
+            fs::path arch_dir = scan_root / name;
+            name = arch_dir.string();
+            Filetarget ft(id, last_altered, arch_dir, pw); //Filetarget(int id, string &dt, fs::path &nm, string &pw)
             stale.doAddFile(ft);
         }
     }

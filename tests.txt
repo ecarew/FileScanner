@@ -7,6 +7,7 @@
 7 run with -s a second time to see if the database created above gets poluted with duplicate entries. Result fail. There were duplicates. To fix this, I've implemented a unique
     constraint on the name column and am reruning tests. Result good. As a final change, the schema should support a unique constraint on both the name and
     parent columns together. Closing note, the schema was changed to support a constrains with both the name and parent.
-8 run with -a|--archive to perform the archive function in the target directory. Result dirs should be converted to tared and encrypted containers. the old dirs should be removed
+8 run with -a|--archive to perform the archive function in the target directory. Result dirs should be converted to tared and encrypted containers. the old dirs should be removed: fail
+    THis failed initially as the dir to operate on wasn't found for a lack of leading path.
 9 run with -r|remove to perform removal of a compressed directory's tar file without doing something strange like removing the wrong thing. Note that
     this feature is the exact behavior ransomeware would perform, and as such may require code signing.
