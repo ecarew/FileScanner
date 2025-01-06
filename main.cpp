@@ -102,8 +102,9 @@ void load_operations(vector<std::pair<std::string, int>> &operations, sqlite3 *d
 
 
 class Filetarget{
-    string cmd = "tar -czf arch target/. && rm -rf target";
-    string enc = "encrypt(openssl enc -aes-256-cbc -salt -in arch -out output -k passwd)";
+    string cmd = "tar -czPf arch target/ && rm -rf target";
+    string enc = "openssl enc -aes-256-cbc -salt -in 'arch' -out 'output' -k 'passwd'";
+    //"openssl enc -d -aes-256-cbc -in <tarfile>.enc -out <tarfile> -k 'passwd'";
     string sql = "insert into files values(name, 1)";
 public:
     int file_id;
@@ -122,16 +123,17 @@ public:
         string datestr = boost::regex_replace(datetime, datefix, "_");
         fs::path arch_parent = name.parent_path();
         string fname = name.filename().string();
-        arch_parent += datestr + fname + ".tar";
+        arch_parent = arch_parent.string() + "/" + datestr + fname + ".tar";
         return arch_parent.string();
     }
     void doTar(){
         if(exists(name)){
             boost::regex arch("arch"), target("target");
             string command = boost::regex_replace(cmd, arch, this->doExtendedFileName());
-            //command = boost::regex_replace(cmd,target, name);
+            command = boost::regex_replace(command,target, name.string());
             system(command.c_str());
             wait(0);
+            name = this->doExtendedFileName();
         } else
             stat = false;
     }
@@ -140,12 +142,13 @@ public:
             char *zErrMsg = 0;
             int rc = 0;
             boost::regex arch("arch"), output("output"), passwd("passwd"), name("name");
-            string command = boost::regex_replace(enc, arch, doExtendedFileName());
-            command = boost::regex_replace(enc, output, doExtendedFileName() + ".enc");
-            command = boost::regex_replace(enc, passwd, pwd);
+            string command = boost::regex_replace(enc, arch, this->name.string());
+            command = boost::regex_replace(command, output, this->name.string() + ".enc");
+            command = boost::regex_replace(command, passwd, pwd);
             system(command.c_str());
-            std::filesystem::remove(doExtendedFileName());
-            string sql = boost::regex_replace(sql, name, doExtendedFileName() + ".enc");
+            wait(0);
+            std::filesystem::remove(this->name.string());
+            string sql = boost::regex_replace(sql, name, this->name.string() + ".enc");
             rc = sqlite3_exec(db, sql.c_str(), NULL, 0, &zErrMsg);
             if(rc!=SQLITE_OK){
                 cout << "SQL Error: " << zErrMsg << "\n";

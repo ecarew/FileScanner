@@ -14,7 +14,7 @@ void initdb(sqlite3 *db){
     last_altered TEXT,
     name TEXT,
     UNIQUE(name, parent));
-    INSERT INTO directory VALUES(1,1,'','/Users/evancarew/Projects');
+    INSERT INTO directory VALUES(1,1,'','/Users/evancarew/Projects/test');
     CREATE TABLE files(
     name TEXT,
     dir integer,
