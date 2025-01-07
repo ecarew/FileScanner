@@ -105,7 +105,7 @@ class Filetarget{
     string cmd = "tar -czPf arch target/ && rm -rf target";
     string enc = "openssl enc -aes-256-cbc -salt -in 'arch' -out 'output' -k 'passwd'";
     //"openssl enc -d -aes-256-cbc -in <tarfile>.enc -out <tarfile> -k 'passwd'";
-    string sql = "insert into files values(name, 1)";
+    string sql = "insert into files values('name', 1, 'date')";
 public:
     int file_id;
     bool stat = true;
@@ -141,15 +141,16 @@ public:
         if(exists(name)){
             char *zErrMsg = 0;
             int rc = 0;
-            boost::regex arch("arch"), output("output"), passwd("passwd"), name("name");
+            boost::regex arch("arch"), output("output"), passwd("passwd"), name("name"), dtt("date");
             string command = boost::regex_replace(enc, arch, this->name.string());
             command = boost::regex_replace(command, output, this->name.string() + ".enc");
             command = boost::regex_replace(command, passwd, pwd);
             system(command.c_str());
             wait(0);
             std::filesystem::remove(this->name.string());
-            string sql = boost::regex_replace(sql, name, this->name.string() + ".enc");
-            rc = sqlite3_exec(db, sql.c_str(), NULL, 0, &zErrMsg);
+            this->sql = boost::regex_replace(this->sql, name, this->name.string() + ".enc");
+            this->sql = boost::regex_replace(this->sql, dtt, this->datetime);
+            rc = sqlite3_exec(db, this->sql.c_str(), NULL, 0, &zErrMsg);
             if(rc!=SQLITE_OK){
                 cout << "SQL Error: " << zErrMsg << "\n";
                 sqlite3_free(zErrMsg);
