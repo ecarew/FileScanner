@@ -13,6 +13,8 @@ extern "C"{
 #include "config.hpp"
 #include <boost/filesystem/path.hpp>
 #include <boost/filesystem.hpp>
+#include <boost/process.hpp>
+#include <boost/format.hpp>
 #include <boost/regex.hpp>
 namespace fs = boost::filesystem;
 #include "boost/date_time/posix_time/posix_time.hpp"
@@ -46,18 +48,15 @@ void dir_enumerate(vector<fs::path> &p, fs::path &scanpath){
 void store_directories(vector<fs::path>& paths, sqlite3 *db){
     // Iterate over the directories and store them in the db
     string sql(R"END(
-    insert into directory (parent, last_altered, name) values(1, 'Vlast_updated', 'Vname');
+    insert into directory (parent, last_altered, name) values(1, '%1%', '%2%');
     )END" );
-    const string format = "%Y-%m-%d %H:%M:%S";
-    boost::regex name("Vname"), last_updated("Vlast_updated");
     for(auto pth : paths){
-        string sql_sub_result = boost::regex_replace(sql, name, (*(--pth.end())).string());
         const std::time_t filetime = fs::last_write_time(pth);
         char buf[70];
         char *zErrMsg = 0;
         int rc = 0;
         strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", std::localtime(&filetime));
-        sql_sub_result = boost::regex_replace(sql_sub_result, last_updated, buf);
+ 	string sql_sub_result = boost::str( boost::format(sql) % buf % (*(--pth.end())).string() );
         rc = sqlite3_exec(db, sql_sub_result.c_str(), NULL, 0, &zErrMsg);
         if(rc!=SQLITE_OK){
             sqlite3_free(zErrMsg);
@@ -102,10 +101,10 @@ void load_operations(vector<std::pair<std::string, int>> &operations, sqlite3 *d
 
 
 class Filetarget{
-    string cmd = "tar -czPf arch target/ && rm -rf target";
-    string enc = "openssl enc -aes-256-cbc -salt -in 'arch' -out 'output' -k 'passwd'";
+    string cmd = "tar -czPf %1% %2%/ && rm -rf %2%";
+    string enc = "openssl enc -aes-256-cbc -salt -in '%1%' -out '%2%.enc' -k '%3%'";
     //"openssl enc -d -aes-256-cbc -in <tarfile>.enc -out <tarfile> -k 'passwd'";
-    string sql = "insert into files values('name', 1, 'date')";
+    string sql = "insert into files values('%1%', 1, '%2%')";
 public:
     int file_id;
     bool stat = true;
@@ -128,9 +127,7 @@ public:
     }
     void doTar(){
         if(exists(name)){
-            boost::regex arch("arch"), target("target");
-            string command = boost::regex_replace(cmd, arch, this->doExtendedFileName());
-            command = boost::regex_replace(command,target, name.string());
+            string command = boost::str( boost::format(cmd) % this->doExtendedFileName() % name.string() );
             system(command.c_str());
             wait(0);
             name = this->doExtendedFileName();
@@ -138,19 +135,15 @@ public:
             stat = false;
     }
     void doEnc(sqlite3 *db){
-        if(exists(name)){
+      if(exists(name)){
             char *zErrMsg = 0;
             int rc = 0;
-            boost::regex arch("arch"), output("output"), passwd("passwd"), name("name"), dtt("date");
-            string command = boost::regex_replace(enc, arch, this->name.string());
-            command = boost::regex_replace(command, output, this->name.string() + ".enc");
-            command = boost::regex_replace(command, passwd, pwd);
+            string command = boost::str( boost::format(enc) % this->name.string() % this->name.string() % pwd );
             system(command.c_str());
             wait(0);
             std::filesystem::remove(this->name.string());
-            this->sql = boost::regex_replace(this->sql, name, this->name.string() + ".enc");
-            this->sql = boost::regex_replace(this->sql, dtt, this->datetime);
-            rc = sqlite3_exec(db, this->sql.c_str(), NULL, 0, &zErrMsg);
+            string sql_addFile = boost::str( boost::format(this->sql) % this->name.string() % this->datetime );
+            rc = sqlite3_exec(db, sql_addFile.c_str(), NULL, 0, &zErrMsg);
             if(rc!=SQLITE_OK){
                 cout << "SQL Error: " << zErrMsg << "\n";
                 sqlite3_free(zErrMsg);
@@ -159,6 +152,8 @@ public:
         } else
             stat = false;
     }
+  void log(sqlite3 *db){
+  }
 };
 class FilesToArchive{
     vector<Filetarget> files;
@@ -170,6 +165,7 @@ public:
         for(auto ft : files){
             ft.doTar();
             ft.doEnc(db);
+	    ft.log(db);
         }
     }
     void doReportAll(){
@@ -229,24 +225,25 @@ void slightly_stale(vector<std::pair<std::string, int>> &operations, FilesToArch
 void over_ripe(vector<std::pair<std::string, int>> &operations, sqlite3 *db){
     sqlite3_stmt *stmt, *stmt2;
     string sql(R"END(
-               select cast (floor(julianday(datetime()) - julianday((select last_altered from files where name=?))) as int);
+               select cast (floor(julianday(datetime()) - julianday((select last_altered from directory where name=?))) as int);
                )END" );
-    string sql_files("select name from files");
-    string sql_rm("delete from files where name = '?'");
-    string cmd("rm ?");
-    boost::regex cfile("?");
+    string sql_files("select name from directory");
+    string sql_rm("delete from files where name = 'fname'");
+    string cmd("rm fname");
+    boost::regex cfile("fname");
     vector<string> names;
     sqlite3_prepare_v2(db, sql_files.c_str(), -1, &stmt, NULL);
     while (sqlite3_step(stmt) != SQLITE_DONE) {
+        //Add a full list of archove files to the array
         names.push_back( (const char*)sqlite3_column_text(stmt, 0));
     }
+    sqlite3_finalize(stmt);
     string arch_op("remove");
     int arch_len = 0;
     for(std::pair<std::string, int> op: operations)
         if(op.first == arch_op)
             arch_len = op.second;
-    sqlite3_finalize(stmt);
-    sqlite3_prepare_v2(db, sql_files.c_str(), -1, &stmt, NULL);
+    sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, NULL);
     for(string name: names){
         sqlite3_bind_text(stmt, 1, name.c_str(), sizeof(name.c_str()), SQLITE_STATIC);
         sqlite3_step(stmt);
@@ -321,6 +318,13 @@ int main(int argc, const char * argv[]) {
             << vm["dbfile"].as< string >() << "\n";
         }
         fs::path p(vm["scanpath"].as< string >());
+	//Switch to local relative pathing by CWD'ing to the scan path
+	if(exists(p) && is_directory(p))
+	  boost::process::system("cd", p.string()); //effectively a CWD
+	else{
+	  cerr << "Specified scan path is not a directory." << endl;
+	  exit(1);
+	}
         //First, put the paths in memory. No operations
         dir_enumerate(paths, p);
         //Open the persistent memory database, create if not found
